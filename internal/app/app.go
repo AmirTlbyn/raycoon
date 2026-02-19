@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"raycoon/internal/config/parser"
+	"raycoon/internal/core/tun"
 	"raycoon/internal/storage"
 	"raycoon/internal/storage/sqlite"
 )
@@ -49,6 +50,9 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
+
+	// Clean up stale TUN state from any previous crash.
+	tun.CleanupIfNeeded()
 
 	// Initialize parser registry
 	parserRegistry := parser.NewRegistry()

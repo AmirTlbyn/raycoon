@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"raycoon/internal/core"
-	"raycoon/internal/core/sysproxy"
+	"raycoon/internal/core/tun"
 	"raycoon/internal/core/types"
 	"raycoon/internal/latency"
 	"raycoon/internal/storage"
@@ -89,9 +89,9 @@ func connectToConfig(store storage.Storage, mgr *core.Manager, config *models.Co
 			return connectResultMsg{config: config, err: err}
 		}
 
-		// Enable system proxy for tunnel mode.
+		// Enable TUN device for tunnel mode.
 		if vpnMode == types.VPNModeTunnel {
-			if err := sysproxy.Enable(socksPort, httpPort); err != nil {
+			if err := tun.Enable(socksPort, []string{config.Address}); err != nil {
 				mgr.Stop(ctx)
 				return connectResultMsg{config: config, err: err}
 			}
@@ -120,10 +120,10 @@ func disconnect(store storage.Storage, mgr *core.Manager) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
-		// Check if tunnel mode — need to disable system proxy.
+		// Check if tunnel mode — need to disable TUN device.
 		if conn, err := store.GetActiveConnection(ctx); err == nil && conn != nil {
 			if conn.VPNMode == string(types.VPNModeTunnel) {
-				sysproxy.Disable()
+				tun.Disable()
 			}
 		}
 

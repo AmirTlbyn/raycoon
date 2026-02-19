@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"raycoon/internal/core"
-	"raycoon/internal/core/sysproxy"
+	"raycoon/internal/core/tun"
 	"raycoon/internal/core/types"
 	"raycoon/internal/latency"
 	"raycoon/internal/storage"
@@ -199,13 +199,13 @@ If no argument is provided, you'll be prompted to select a config.`,
 			return fmt.Errorf("failed to start proxy: %w", err)
 		}
 
-		// Enable system proxy for tunnel mode.
+		// Enable TUN device for tunnel mode.
 		if vpnMode == types.VPNModeTunnel {
-			fmt.Println("Setting system proxy...")
-			if err := sysproxy.Enable(socksPort, httpPort); err != nil {
-				// Core started but system proxy failed — stop core and bail.
+			fmt.Println("Enabling TUN device...")
+			if err := tun.Enable(socksPort, []string{config.Address}); err != nil {
+				// Core started but TUN failed — stop core and bail.
 				coreManager.Stop(ctx)
-				return fmt.Errorf("failed to set system proxy: %w", err)
+				return fmt.Errorf("failed to enable TUN device: %w", err)
 			}
 		}
 
@@ -234,12 +234,7 @@ If no argument is provided, you'll be prompted to select a config.`,
 		fmt.Println("Proxy is now running. Use 'raycoon disconnect' to stop.")
 		if vpnMode == types.VPNModeTunnel {
 			fmt.Println()
-			fmt.Println("System proxy is enabled — browsers and GUI apps are tunneled.")
-			fmt.Println()
-			fmt.Println("For terminal apps (curl, wget, etc.), run:")
-			fmt.Printf("  export https_proxy=http://127.0.0.1:%d http_proxy=http://127.0.0.1:%d all_proxy=socks5://127.0.0.1:%d\n", httpPort, httpPort, socksPort)
-			fmt.Println()
-			fmt.Println("Note: ICMP (ping) cannot be proxied. Use curl to verify connectivity.")
+			fmt.Println("TUN device active — all system traffic is tunneled.")
 		} else {
 			fmt.Println()
 			fmt.Println("Configure your applications to use:")
@@ -331,11 +326,11 @@ func disconnectCurrent(ctx context.Context) error {
 		return fmt.Errorf("no active connection")
 	}
 
-	// Disable system proxy if tunnel mode was active.
+	// Disable TUN device if tunnel mode was active.
 	if activeConn.VPNMode == string(types.VPNModeTunnel) {
-		fmt.Println("Removing system proxy...")
-		if err := sysproxy.Disable(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove system proxy: %v\n", err)
+		fmt.Println("Disabling TUN device...")
+		if err := tun.Disable(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to disable TUN device: %v\n", err)
 		}
 	}
 
