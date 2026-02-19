@@ -1,4 +1,4 @@
-.PHONY: build test clean install run help
+.PHONY: build test clean install install-full completion run help
 
 # Build variables
 BINARY_NAME=raycoon
@@ -41,6 +41,35 @@ install: ## Install the application
 	@echo "Installing $(BINARY_NAME)..."
 	@go install $(BUILD_FLAGS) $(MAIN_PATH)
 	@echo "✓ Installed to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
+
+completion: build ## Generate shell completion files
+	@echo "Generating shell completions..."
+	@mkdir -p $(BUILD_DIR)/completions
+	@./$(BUILD_DIR)/$(BINARY_NAME) completion bash > $(BUILD_DIR)/completions/raycoon.bash
+	@./$(BUILD_DIR)/$(BINARY_NAME) completion zsh > $(BUILD_DIR)/completions/_raycoon
+	@./$(BUILD_DIR)/$(BINARY_NAME) completion fish > $(BUILD_DIR)/completions/raycoon.fish
+	@echo "✓ Completions generated in $(BUILD_DIR)/completions/"
+
+install-full: build completion ## Build + install binary + completions + xray
+	@echo "Full installation..."
+	@sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
+	@echo "✓ Binary installed to /usr/local/bin/$(BINARY_NAME)"
+	@mkdir -p $(HOME)/.config/raycoon $(HOME)/.local/share/raycoon $(HOME)/.cache/raycoon
+	@# Install completions for detected shell
+	@if [ "$(shell basename $$SHELL)" = "zsh" ]; then \
+		sudo mkdir -p /usr/local/share/zsh/site-functions; \
+		sudo cp $(BUILD_DIR)/completions/_raycoon /usr/local/share/zsh/site-functions/_raycoon; \
+		echo "✓ Zsh completions installed"; \
+	elif [ "$(shell basename $$SHELL)" = "bash" ]; then \
+		mkdir -p $(HOME)/.local/share/bash-completion/completions; \
+		cp $(BUILD_DIR)/completions/raycoon.bash $(HOME)/.local/share/bash-completion/completions/raycoon; \
+		echo "✓ Bash completions installed"; \
+	elif [ "$(shell basename $$SHELL)" = "fish" ]; then \
+		mkdir -p $(HOME)/.config/fish/completions; \
+		cp $(BUILD_DIR)/completions/raycoon.fish $(HOME)/.config/fish/completions/raycoon.fish; \
+		echo "✓ Fish completions installed"; \
+	fi
+	@echo "✓ Full installation complete"
 
 run: ## Run the application
 	@go run $(MAIN_PATH)
