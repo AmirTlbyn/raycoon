@@ -25,7 +25,21 @@ Raycoon v1.1.0 — Your friendly neighborhood proxy manager
 curl -fsSL https://raw.githubusercontent.com/AmirTlbyn/raycoon/main/install.sh | bash
 ```
 
-Installs `raycoon` and `xray-core` (with geo files) automatically. Supports macOS and Linux on amd64/arm64.
+Or with `wget`:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/AmirTlbyn/raycoon/main/install.sh | bash
+```
+
+**What it does:**
+- Downloads the latest `raycoon` binary for your OS/arch and installs it to `/usr/local/bin/`
+- Downloads the latest `xray-core` (with `geoip.dat` and `geosite.dat`) to `~/.local/bin/`
+- Sets up shell completions (bash, zsh, or fish — auto-detected)
+- Creates config/data/cache directories
+
+**To update**, simply run the same command again — it detects your current version and only downloads what changed.
+
+**Requirements:** `curl` (or `wget`), `unzip` — Supports macOS and Linux on amd64 / arm64.
 
 ### Homebrew (macOS/Linux)
 
