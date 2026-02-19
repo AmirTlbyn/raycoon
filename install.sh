@@ -55,6 +55,20 @@ get_latest_release() {
     echo "$tag"
 }
 
+get_installed_raycoon_version() {
+    if [ -x "${INSTALL_DIR}/raycoon" ]; then
+        "${INSTALL_DIR}/raycoon" --version 2>/dev/null \
+            | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'
+    fi
+}
+
+get_installed_xray_version() {
+    if [ -x "${XRAY_DIR}/xray" ]; then
+        "${XRAY_DIR}/xray" --version 2>/dev/null \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
+    fi
+}
+
 download_raycoon() {
     local version="$1"
     local tmpdir
@@ -182,10 +196,15 @@ create_dirs() {
 print_success() {
     local raycoon_version="$1"
     local xray_version="$2"
+    local action="${3:-installed}"
 
     echo ""
     echo -e "${GREEN}============================================${NC}"
-    echo -e "${GREEN}  Raycoon installed successfully!${NC}"
+    if [ "$action" = "updated" ]; then
+        echo -e "${GREEN}  Raycoon updated successfully!${NC}"
+    else
+        echo -e "${GREEN}  Raycoon installed successfully!${NC}"
+    fi
     echo -e "${GREEN}============================================${NC}"
     echo ""
     echo "  raycoon : ${raycoon_version}"
@@ -218,11 +237,41 @@ main() {
     xray_version=$(get_latest_release "$XRAY_REPO")
     info "raycoon: ${raycoon_version}, xray: ${xray_version}"
 
-    download_raycoon "$raycoon_version"
-    download_xray "$xray_version"
+    local current_raycoon current_xray action="installed"
+    current_raycoon=$(get_installed_raycoon_version)
+    current_xray=$(get_installed_xray_version)
+
+    local raycoon_plain="${raycoon_version#v}"
+    local xray_plain="${xray_version#v}"
+
+    # Install or update raycoon
+    if [ -n "$current_raycoon" ]; then
+        if [ "$current_raycoon" = "$raycoon_plain" ]; then
+            success "raycoon ${raycoon_version} is already up to date, skipping"
+        else
+            info "Updating raycoon: v${current_raycoon} → ${raycoon_version}"
+            action="updated"
+            download_raycoon "$raycoon_version"
+        fi
+    else
+        download_raycoon "$raycoon_version"
+    fi
+
+    # Install or update xray
+    if [ -n "$current_xray" ]; then
+        if [ "$current_xray" = "$xray_plain" ]; then
+            success "xray ${xray_version} is already up to date, skipping"
+        else
+            info "Updating xray: v${current_xray} → ${xray_version}"
+            download_xray "$xray_version"
+        fi
+    else
+        download_xray "$xray_version"
+    fi
+
     create_dirs
     setup_completions
-    print_success "$raycoon_version" "$xray_version"
+    print_success "$raycoon_version" "$xray_version" "$action"
 }
 
 main

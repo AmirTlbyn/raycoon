@@ -5,9 +5,12 @@ BINARY_NAME=raycoon
 BUILD_DIR=bin
 MAIN_PATH=cmd/raycoon/main.go
 
+# Version from git tag (e.g. v1.1.0), fallback to "dev"
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
 # Build flags
-LDFLAGS=-ldflags "-s -w"
-BUILD_FLAGS=$(LDFLAGS)
+LDFLAGS = -ldflags "-s -w -X 'raycoon/internal/cli.version=$(VERSION)'"
+BUILD_FLAGS = $(LDFLAGS)
 
 help: ## Show this help message
 	@echo "Raycoon - V2Ray/Proxy CLI Client"

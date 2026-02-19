@@ -10,7 +10,7 @@ import (
 
 var (
 	appInstance *app.App
-	version     = "1.0.0"
+	version     = "dev"
 )
 
 // rootCmd represents the base command
@@ -76,6 +76,6 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("🦝 Raycoon v%s\n", version)
+		fmt.Printf("🦝 Raycoon %s\n", version)
 	},
 }
