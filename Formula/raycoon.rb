@@ -7,22 +7,22 @@ class Raycoon < Formula
   on_macos do
     on_intel do
       url "https://github.com/AmirTlbyn/raycoon/releases/download/v#{version}/raycoon-darwin-amd64"
-      sha256 "PLACEHOLDER_DARWIN_AMD64"
+      sha256 "1dd039b5d08217777e18d505756dd0d5d06099b196c817a80fb765fa5906c425"
     end
     on_arm do
       url "https://github.com/AmirTlbyn/raycoon/releases/download/v#{version}/raycoon-darwin-arm64"
-      sha256 "PLACEHOLDER_DARWIN_ARM64"
+      sha256 "ca5629771f97afff116842f51de54043ba1d3d302f628f5b3175ba57e0147752"
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/AmirTlbyn/raycoon/releases/download/v#{version}/raycoon-linux-amd64"
-      sha256 "PLACEHOLDER_LINUX_AMD64"
+      sha256 "1e91cd86591ac3b56e4614d261bde3190d2f05d7e5884e2cf7f1045552923414"
     end
     on_arm do
       url "https://github.com/AmirTlbyn/raycoon/releases/download/v#{version}/raycoon-linux-arm64"
-      sha256 "PLACEHOLDER_LINUX_ARM64"
+      sha256 "0c135668f6dbe67f7b3f27ffac1449c0a8245760626d4b2447b34bfa9eaa2373"
     end
   end
 
