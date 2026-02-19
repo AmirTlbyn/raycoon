@@ -29,7 +29,7 @@ type settingDef struct {
 }
 
 var settingDefs = []settingDef{
-	{key: "vpn_mode", label: "VPN Mode", description: "How traffic is routed", defaultVal: "proxy", kind: settingChoice, choices: []string{"proxy", "tunnel"}},
+	{key: "vpn_mode", label: "VPN Mode", description: "How traffic is routed", defaultVal: "proxy", kind: settingChoice, choices: []string{"proxy", "tun"}},
 	{key: "proxy_port", label: "SOCKS Port", description: "SOCKS5 proxy port", defaultVal: "1080", kind: settingText},
 	{key: "http_proxy_port", label: "HTTP Port", description: "HTTP proxy port", defaultVal: "1081", kind: settingText},
 	{key: "active_core", label: "Core", description: "Proxy core engine", defaultVal: "xray", kind: settingChoice, choices: []string{"xray", "singbox"}},

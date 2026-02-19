@@ -31,6 +31,17 @@ func detectGateway() (gateway, iface string, err error) {
 	return gateway, iface, nil
 }
 
+// configureTUNAddress assigns a point-to-point IP address to the TUN device.
+func configureTUNAddress(deviceName, addr string) error {
+	if err := run("ip", "addr", "add", addr+"/30", "dev", deviceName); err != nil {
+		return fmt.Errorf("failed to add address to %s: %w", deviceName, err)
+	}
+	if err := run("ip", "link", "set", deviceName, "up"); err != nil {
+		return fmt.Errorf("failed to bring up %s: %w", deviceName, err)
+	}
+	return nil
+}
+
 // addBypassRoutes adds host routes for remote server IPs via the original gateway.
 func addBypassRoutes(remoteAddrs []string, gateway string) error {
 	for _, addr := range remoteAddrs {
@@ -52,18 +63,31 @@ func removeBypassRoutes(remoteAddrs []string) error {
 	return firstErr
 }
 
-// setDefaultRouteTUN replaces the default route to go through the TUN device.
+// setDefaultRouteTUN captures all traffic through the TUN device by adding two
+// /1 routes more specific than the default (0/0). The original default route
+// is never removed, making cleanup and crash recovery safer.
 func setDefaultRouteTUN(tunDevice string) error {
-	if err := run("ip", "route", "replace", "default", "dev", tunDevice, "metric", "1"); err != nil {
-		return fmt.Errorf("failed to set TUN default route: %w", err)
+	if err := run("ip", "route", "add", "0.0.0.0/1", "dev", tunDevice); err != nil {
+		return fmt.Errorf("failed to add 0/1 TUN route: %w", err)
+	}
+	if err := run("ip", "route", "add", "128.0.0.0/1", "dev", tunDevice); err != nil {
+		// Roll back the first route.
+		run("ip", "route", "del", "0.0.0.0/1")
+		return fmt.Errorf("failed to add 128/1 TUN route: %w", err)
 	}
 	return nil
 }
 
-// restoreDefaultRoute restores the original default route.
+// restoreDefaultRoute removes the /1 overlay routes and ensures the original
+// default route is present. Handles both new (/1 overlay) and old (metric-1
+// default replacement) code for crash-recovery across upgrades.
 func restoreDefaultRoute(gateway string) error {
-	// Remove TUN route (ignore errors — may already be gone).
+	// Remove /1 overlay routes (new approach). Ignore errors.
+	run("ip", "route", "del", "0.0.0.0/1")
+	run("ip", "route", "del", "128.0.0.0/1")
+	// Remove old metric-1 default route if present (old approach).
 	run("ip", "route", "delete", "default", "metric", "1")
+	// Ensure the original default route is present.
 	if err := run("ip", "route", "replace", "default", "via", gateway); err != nil {
 		return fmt.Errorf("failed to restore default route via %s: %w", gateway, err)
 	}

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
+	"time"
+
+	"raycoon/internal/paths"
 )
 
 // tunState is persisted to disk so we can recover from crashes.
@@ -16,16 +18,14 @@ type tunState struct {
 }
 
 // stateFilePath returns the path to the TUN state file.
+// Uses paths.CacheDir() so the directory is chowned to the real user when
+// running under sudo, allowing non-root disconnect to read the state file.
 func stateFilePath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	dir, err := paths.CacheDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get cache dir: %w", err)
 	}
-	dir := filepath.Join(homeDir, ".cache", "raycoon")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "tun.state"), nil
+	return dir + "/tun.state", nil
 }
 
 // saveState writes the current TUN state to disk for crash recovery.
@@ -60,26 +60,65 @@ func removeState() {
 	}
 }
 
-// CleanupIfNeeded checks for a stale TUN state file and restores routes if found.
-// Should be called on application startup.
+// readStateFile reads and parses the TUN state file.
+func readStateFile(path string) (*tunState, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var state tunState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+// CleanupIfNeeded checks for a stale TUN state file and restores the system
+// if found. Called on application startup and before Enable().
+//
+// Strategy:
+//  1. Signal the daemon via the stop file and wait up to 3 s for it to exit.
+//  2. If the daemon does not respond (it may have crashed), restore routes and
+//     DNS directly. This requires root; without it the commands will silently
+//     fail but the next sudo invocation will succeed.
 func CleanupIfNeeded() {
-	path, err := stateFilePath()
+	statePath, err := stateFilePath()
 	if err != nil {
 		return
 	}
 
-	data, err := os.ReadFile(path)
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		return // No stale state — nothing to do.
+	}
+
+	// Try to signal a live daemon first.
+	stopPath, stopErr := stopFilePath()
+	if stopErr == nil {
+		_ = os.WriteFile(stopPath, []byte("stop"), 0644)
+
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(statePath); os.IsNotExist(err) {
+				return // Daemon cleaned up successfully.
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+		os.Remove(stopPath) // Tidy up the stop file if daemon didn't see it.
+	}
+
+	// Daemon is gone (crash/restart) — clean up directly.
+	data, err := os.ReadFile(statePath)
 	if err != nil {
-		return // No state file — nothing to clean up.
+		os.Remove(statePath)
+		return
 	}
 
 	var state tunState
 	if err := json.Unmarshal(data, &state); err != nil {
-		os.Remove(path)
+		os.Remove(statePath)
 		return
 	}
 
-	// Restore routes from the stale state.
 	if state.Gateway != "" {
 		restoreDefaultRoute(state.Gateway)
 	}
@@ -87,6 +126,5 @@ func CleanupIfNeeded() {
 		removeBypassRoutes(state.RemoteAddrs)
 	}
 	restoreDNS()
-
-	os.Remove(path)
+	os.Remove(statePath)
 }

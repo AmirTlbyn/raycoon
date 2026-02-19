@@ -31,7 +31,7 @@ var rootCmd = &cobra.Command{
     • Xray-core with VLESS, VMess, Trojan, Shadowsocks, Reality
     • Subscription management with auto-update
     • TCP & HTTP latency testing with parallel workers
-    • Proxy mode (SOCKS5/HTTP) and tunnel mode (system proxy)`,
+    • Proxy mode (SOCKS5/HTTP) and TUN mode (system-wide tunneling)`,
 	Version: version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize app

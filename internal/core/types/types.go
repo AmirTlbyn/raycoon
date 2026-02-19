@@ -21,7 +21,7 @@ type CoreConfig struct {
 type VPNMode string
 
 const (
-	VPNModeTunnel VPNMode = "tunnel" // System-wide tunneling
+	VPNModeTunnel VPNMode = "tun" // System-wide tunneling via TUN device
 	VPNModeProxy  VPNMode = "proxy"  // SOCKS/HTTP proxy
 )
 

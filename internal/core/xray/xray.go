@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"raycoon/internal/core/types"
+	"raycoon/internal/paths"
 )
 
 // Xray implements the ProxyCore interface for Xray-core
@@ -41,14 +42,9 @@ func New() (*Xray, error) {
 		return nil, fmt.Errorf("xray binary not found: %w (install from https://github.com/XTLS/Xray-core)", err)
 	}
 
-	// Create temp directories
-	homeDir, err := os.UserHomeDir()
+	// Create temp directories (use real user's home even under sudo).
+	tmpDir, err := paths.CacheDir()
 	if err != nil {
-		return nil, err
-	}
-
-	tmpDir := filepath.Join(homeDir, ".cache", "raycoon")
-	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return nil, err
 	}
 
@@ -92,6 +88,9 @@ func (x *Xray) Start(ctx context.Context, config *types.CoreConfig) error {
 	if err := os.WriteFile(x.configPath, configJSON, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
+	// When invoked via sudo, make the config readable by the real user so
+	// xray (which will run as the real user) can load it.
+	paths.ChownToRealUser(x.configPath)
 
 	// Find xray binary
 	xrayPath, err := findXrayBinary()
@@ -106,9 +105,20 @@ func (x *Xray) Start(ctx context.Context, config *types.CoreConfig) error {
 	xrayDir := filepath.Dir(xrayPath)
 	x.cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+xrayDir)
 
-	// Detach process from parent so it survives when CLI exits
+	// Detach process from parent so it survives when CLI exits.
 	x.cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
+	}
+
+	// When invoked via sudo, drop xray back to the real user's UID/GID so
+	// that a later non-root "raycoon disconnect" can signal it. TUN setup
+	// is done by the parent process (which keeps root), so xray itself
+	// does not need elevated privileges.
+	if uid, gid, ok := paths.RealUser(); ok {
+		x.cmd.SysProcAttr.Credential = &syscall.Credential{
+			Uid: uint32(uid),
+			Gid: uint32(gid),
+		}
 	}
 
 	// Setup logging
@@ -116,6 +126,7 @@ func (x *Xray) Start(ctx context.Context, config *types.CoreConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to create log file: %w", err)
 	}
+	paths.ChownToRealUser(x.logPath)
 
 	// Create multi-writer to write to both file and buffer
 	multiWriter := io.MultiWriter(logFile, x.logBuffer)
@@ -133,7 +144,8 @@ func (x *Xray) Start(ctx context.Context, config *types.CoreConfig) error {
 
 	// Save PID to file for cross-process tracking
 	pidStr := fmt.Sprintf("%d", x.cmd.Process.Pid)
-	os.WriteFile(x.pidPath, []byte(pidStr), 0600)
+	os.WriteFile(x.pidPath, []byte(pidStr), 0644)
+	paths.ChownToRealUser(x.pidPath)
 
 	// Initialize stats collector
 	x.statsCollector = newStatsCollector(x.logPath)
@@ -335,8 +347,8 @@ func findXrayBinary() (string, error) {
 		"/opt/xray/xray",
 	}
 
-	// Also check in home directory
-	if homeDir, err := os.UserHomeDir(); err == nil {
+	// Also check in real user's home directory (works under sudo).
+	if homeDir, err := paths.HomeDir(); err == nil {
 		locations = append(locations, filepath.Join(homeDir, ".local", "bin", "xray"))
 		locations = append(locations, filepath.Join(homeDir, ".local", "share", "raycoon", "cores", "xray"))
 	}

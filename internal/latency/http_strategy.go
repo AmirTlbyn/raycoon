@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"raycoon/internal/paths"
+
 	"raycoon/internal/core/types"
 	"raycoon/internal/core/xray"
 	"raycoon/internal/storage/models"
@@ -67,8 +69,7 @@ func (s *HTTPStrategy) Test(ctx context.Context, config *models.Config) (int, er
 	}
 
 	// Write temp config with unique name per port.
-	homeDir, _ := os.UserHomeDir()
-	tmpDir := filepath.Join(homeDir, ".cache", "raycoon")
+	tmpDir, _ := paths.CacheDir()
 	configPath := filepath.Join(tmpDir, fmt.Sprintf("latency_test_%d.json", socksPort))
 	if err := os.WriteFile(configPath, configJSON, 0600); err != nil {
 		return 0, fmt.Errorf("failed to write test config: %w", err)
@@ -173,7 +174,7 @@ func findXrayBinary() (string, error) {
 		"/opt/xray/xray",
 	}
 
-	if homeDir, err := os.UserHomeDir(); err == nil {
+	if homeDir, err := paths.HomeDir(); err == nil {
 		locations = append(locations, filepath.Join(homeDir, ".local", "bin", "xray"))
 		locations = append(locations, filepath.Join(homeDir, ".local", "share", "raycoon", "cores", "xray"))
 	}

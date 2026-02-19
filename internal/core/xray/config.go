@@ -228,8 +228,7 @@ func generateXrayConfig(config *types.CoreConfig) (*XrayConfig, error) {
 			},
 			Sniffing: &SniffingConfig{
 				Enabled:      true,
-				DestOverride: []string{"http", "tls"},
-				RouteOnly:    true,
+				DestOverride: []string{"http", "tls", "quic"},
 			},
 		})
 
@@ -240,8 +239,7 @@ func generateXrayConfig(config *types.CoreConfig) (*XrayConfig, error) {
 			Protocol: "http",
 			Sniffing: &SniffingConfig{
 				Enabled:      true,
-				DestOverride: []string{"http", "tls"},
-				RouteOnly:    true,
+				DestOverride: []string{"http", "tls", "quic"},
 			},
 		})
 
@@ -281,9 +279,11 @@ func generateXrayConfig(config *types.CoreConfig) (*XrayConfig, error) {
 		Protocol: "blackhole",
 	})
 
-	// Routing: AsIs for fastest path (no DNS pre-resolution).
+	// Routing: IPIfNonMatch so xray resolves domains via its DNS config
+	// when no domain-based rule matches. This prevents DNS poisoning by
+	// the ISP since xray uses remote DNS through the proxy.
 	xrayConfig.Routing = &RoutingConfig{
-		DomainStrategy: "AsIs",
+		DomainStrategy: "IPIfNonMatch",
 		Rules:          []RoutingRule{},
 	}
 
@@ -323,16 +323,26 @@ func generateXrayConfig(config *types.CoreConfig) (*XrayConfig, error) {
 		OutboundTag: "proxy",
 	})
 
-	// DNS: use proxy DNS to avoid leaks, with localhost fallback for local names.
-	if len(config.DNSServers) > 0 {
-		servers := make([]interface{}, 0, len(config.DNSServers)+1)
-		for _, s := range config.DNSServers {
-			servers = append(servers, s)
-		}
+	// DNS: resolve through proxy to defeat ISP DNS poisoning.
+	// localhost handles private/local domains directly.
+	{
+		servers := make([]interface{}, 0, 4)
+
+		// Local domains use system DNS directly.
 		servers = append(servers, map[string]interface{}{
 			"address": "localhost",
 			"domains": []string{"geosite:private"},
 		})
+
+		// Remote DNS servers (queried through the proxy outbound).
+		if len(config.DNSServers) > 0 {
+			for _, s := range config.DNSServers {
+				servers = append(servers, s)
+			}
+		} else {
+			servers = append(servers, "8.8.8.8", "1.1.1.1")
+		}
+
 		xrayConfig.DNS = &DNSConfig{
 			Servers: servers,
 		}

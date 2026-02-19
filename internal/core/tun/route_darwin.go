@@ -29,6 +29,16 @@ func detectGateway() (gateway, iface string, err error) {
 	return gateway, iface, nil
 }
 
+// configureTUNAddress assigns a point-to-point IP address to the TUN device.
+// This is required on macOS because tun2socks creates the device but doesn't
+// configure an IP on it — without this, routes pointing to the TUN have no next hop.
+func configureTUNAddress(deviceName, addr string) error {
+	if err := run("ifconfig", deviceName, addr, addr, "up"); err != nil {
+		return fmt.Errorf("failed to configure %s: %w", deviceName, err)
+	}
+	return nil
+}
+
 // addBypassRoutes adds host routes for remote server IPs via the original gateway
 // so traffic to the proxy server itself doesn't loop through the TUN device.
 func addBypassRoutes(remoteAddrs []string, gateway string) error {
@@ -51,24 +61,32 @@ func removeBypassRoutes(remoteAddrs []string) error {
 	return firstErr
 }
 
-// setDefaultRouteTUN replaces the default route to go through the TUN device.
+// setDefaultRouteTUN captures all traffic through the TUN device by adding two
+// /1 routes that are more specific than the default (0/0) route. This avoids
+// deleting the real default route, making cleanup and crash recovery safer.
 func setDefaultRouteTUN(tunDevice string) error {
-	// Get the TUN device's point-to-point address to use as gateway.
-	// tun2socks assigns 198.18.0.1 as the device address by default.
-	tunGateway := "198.18.0.1"
-
-	if err := run("route", "delete", "default"); err != nil {
-		return fmt.Errorf("failed to delete current default route: %w", err)
+	if err := run("route", "add", "0/1", tunGateway); err != nil {
+		return fmt.Errorf("failed to add 0/1 TUN route: %w", err)
 	}
-	if err := run("route", "add", "default", tunGateway); err != nil {
-		return fmt.Errorf("failed to add TUN default route: %w", err)
+	if err := run("route", "add", "128/1", tunGateway); err != nil {
+		// Roll back the first route so we don't leave partial state.
+		run("route", "delete", "0/1")
+		return fmt.Errorf("failed to add 128/1 TUN route: %w", err)
 	}
 	return nil
 }
 
-// restoreDefaultRoute restores the original default route via the original gateway.
+// restoreDefaultRoute removes the /1 overlay routes and ensures the original
+// default route via gateway is present. Handles both new (/1 overlay) and old
+// (single default replacement) code so crash-recovery works across upgrades.
 func restoreDefaultRoute(gateway string) error {
-	// Delete TUN route (ignore error — may already be gone).
+	// Remove the two /1 overlay routes (new approach). Ignore errors — they
+	// may not be present if an old version of the code was used.
+	run("route", "delete", "0/1")
+	run("route", "delete", "128/1")
+	// Ensure the original default route is present. If we never deleted it
+	// (new approach) this is a no-op; if an old crash left it missing this
+	// restores it.
 	run("route", "delete", "default")
 	if err := run("route", "add", "default", gateway); err != nil {
 		return fmt.Errorf("failed to restore default route via %s: %w", gateway, err)

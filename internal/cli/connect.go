@@ -14,6 +14,7 @@ import (
 	"raycoon/internal/core/tun"
 	"raycoon/internal/core/types"
 	"raycoon/internal/latency"
+	"raycoon/internal/paths"
 	"raycoon/internal/storage"
 	"raycoon/internal/storage/models"
 )
@@ -97,7 +98,7 @@ If no argument is provided, you'll be prompted to select a config.`,
 		switch vpnModeStr {
 		case "proxy":
 			vpnMode = types.VPNModeProxy
-		case "tunnel":
+		case "tun":
 			vpnMode = types.VPNModeTunnel
 		default:
 			// Get from settings
@@ -323,41 +324,49 @@ func disconnectCurrent(ctx context.Context) error {
 	// Get active connection
 	activeConn, err := appInstance.Storage.GetActiveConnection(ctx)
 	if err != nil || activeConn == nil {
+		// Even if no active connection in DB, try TUN cleanup and xray kill
+		// in case a previous session left stale state.
+		tun.CleanupIfNeeded()
+		killXrayProcess()
 		return fmt.Errorf("no active connection")
 	}
 
-	// Disable TUN device if tunnel mode was active.
+	// Always try TUN cleanup first — restores routes/DNS before stopping xray.
+	// This works even if the current session isn't tunnel mode, because
+	// CleanupIfNeeded is a no-op when there's no stale state file.
 	if activeConn.VPNMode == string(types.VPNModeTunnel) {
 		fmt.Println("Disabling TUN device...")
 		if err := tun.Disable(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to disable TUN device: %v\n", err)
+			// Fall back to cleanup in case Disable() partially failed.
+			tun.CleanupIfNeeded()
 		}
 	}
 
-	// Initialize core manager if needed (for cross-process disconnect)
+	// Stop the xray/core process.
+	fmt.Println("Stopping proxy core...")
+	stopped := false
+
+	// Try via core manager first (in-process).
 	if coreManager == nil {
 		coreType := types.CoreType(activeConn.CoreType)
 		coreManager, err = core.NewManager(coreType)
 		if err != nil {
-			// If we can't create the manager, try pkill as fallback
-			fmt.Println("Stopping proxy core...")
-			killCmd := exec.Command("pkill", "-f", "xray run -c.*raycoon")
-			killCmd.Run()
-			time.Sleep(500 * time.Millisecond)
-
-			if err := appInstance.Storage.ClearActiveConnection(ctx); err != nil {
-				return fmt.Errorf("failed to clear connection state: %w", err)
-			}
-			return nil
+			coreManager = nil
 		}
 	}
 
-	// Stop core
-	if coreManager.IsRunning() {
-		fmt.Println("Stopping proxy core...")
+	if coreManager != nil && coreManager.IsRunning() {
 		if err := coreManager.Stop(ctx); err != nil {
-			return fmt.Errorf("failed to stop core: %w", err)
+			fmt.Fprintf(os.Stderr, "Warning: core manager stop failed: %v\n", err)
+		} else {
+			stopped = true
 		}
+	}
+
+	// Always try to kill xray via PID file / pkill as fallback for detached processes.
+	if !stopped {
+		killXrayProcess()
 	}
 
 	// Clear active connection
@@ -366,6 +375,30 @@ func disconnectCurrent(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// killXrayProcess kills any raycoon-managed xray process via PID file or pkill.
+func killXrayProcess() {
+	// Try PID file first (use real user's home even under sudo).
+	cacheDir, _ := paths.CacheDir()
+	if cacheDir != "" {
+		pidPath := cacheDir + "/xray.pid"
+		if pidBytes, err := os.ReadFile(pidPath); err == nil {
+			pidStr := strings.TrimSpace(string(pidBytes))
+			if pid, err := strconv.Atoi(pidStr); err == nil {
+				if proc, err := os.FindProcess(pid); err == nil {
+					proc.Signal(os.Interrupt)
+					time.Sleep(500 * time.Millisecond)
+					proc.Kill()
+				}
+			}
+			os.Remove(pidPath)
+		}
+	}
+
+	// Fallback: pkill any xray processes running raycoon configs.
+	killCmd := exec.Command("pkill", "-f", "xray run -c.*raycoon")
+	killCmd.Run()
 }
 
 func selectLowestLatencyConfig(ctx context.Context, groupName string) (*models.Config, error) {
@@ -425,7 +458,7 @@ func isXrayProcessRunning() bool {
 func init() {
 	// Connect flags
 	connectCmd.Flags().StringP("group", "g", "", "select from group")
-	connectCmd.Flags().StringP("mode", "m", "", "VPN mode (tunnel/proxy)")
+	connectCmd.Flags().StringP("mode", "m", "", "VPN mode (tun/proxy)")
 	connectCmd.Flags().IntP("port", "p", 0, "SOCKS proxy port")
 	connectCmd.Flags().Int("http-port", 0, "HTTP proxy port")
 	connectCmd.Flags().String("core", "", "core to use (xray/singbox)")
@@ -435,7 +468,7 @@ func init() {
 	// Connect flag completions
 	connectCmd.RegisterFlagCompletionFunc("group", completeGroupNamesForFlag)
 	connectCmd.RegisterFlagCompletionFunc("mode", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return []string{"tunnel", "proxy"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{"tun", "proxy"}, cobra.ShellCompDirectiveNoFileComp
 	})
 	connectCmd.RegisterFlagCompletionFunc("core", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"xray", "singbox"}, cobra.ShellCompDirectiveNoFileComp

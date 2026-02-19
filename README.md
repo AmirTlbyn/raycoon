@@ -12,8 +12,8 @@ A modern, powerful CLI client for managing V2Ray/Xray proxy connections from you
 - **Xray-Core** — Full xray-core integration with detached process management
 - **Subscriptions** — Auto-updating subscription groups with scheduler
 - **Latency Testing** — TCP & HTTP strategies with concurrent worker pool
-- **VPN Modes** — Proxy mode (SOCKS5/HTTP) or Tunnel mode (system-wide proxy)
-- **System Proxy** — macOS and Linux (GNOME) tunnel mode support
+- **VPN Modes** — Proxy mode (SOCKS5/HTTP) or TUN mode (system-wide tunneling via TUN device)
+- **TUN Mode** — macOS and Linux support — routes all traffic through xray without manual proxy config
 - **Traffic Stats** — Real-time upload/download monitoring via Xray gRPC API
 - **SQLite Storage** — Fast, reliable local database for all your configs
 
@@ -165,7 +165,7 @@ raycoon connect 1 --port 1080 --http-port 1081
 
 # Choose VPN mode
 raycoon connect 1 --mode proxy    # SOCKS5 + HTTP proxy (default)
-raycoon connect 1 --mode tunnel   # System-wide proxy
+sudo raycoon connect 1 --mode tun # TUN mode — all system traffic tunneled (requires root)
 
 # Test latency before connecting
 raycoon connect 1 --test
@@ -190,7 +190,15 @@ export http_proxy=http://127.0.0.1:1081
 export https_proxy=http://127.0.0.1:1081
 ```
 
-**Tunnel mode** — System proxy is set automatically (macOS & Linux GNOME). All traffic goes through the proxy.
+**TUN mode** — Creates a virtual network device and routes ALL system traffic through the xray proxy, including apps that don't support proxy settings. Requires root (`sudo`). Disconnect can be done without sudo.
+
+```bash
+# Connect with TUN mode
+sudo raycoon connect 1 --mode tun
+
+# Disconnect (no sudo needed)
+raycoon disconnect
+```
 
 ### 🦝 Latency Testing
 

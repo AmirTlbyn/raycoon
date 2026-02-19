@@ -3,11 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"raycoon/internal/config/parser"
 	"raycoon/internal/core/tun"
+	"raycoon/internal/paths"
 	"raycoon/internal/storage"
 	"raycoon/internal/storage/sqlite"
 )
@@ -26,26 +25,20 @@ type Config struct {
 
 // New creates a new application instance
 func New() (*App, error) {
-	// Get default config directory
-	homeDir, err := os.UserHomeDir()
+	// Create directories (uses real user's home even under sudo).
+	configDir, err := paths.ConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	configDir := filepath.Join(homeDir, ".config", "raycoon")
-	dataDir := filepath.Join(homeDir, ".local", "share", "raycoon")
-
-	// Create directories if they don't exist
-	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
+	_ = configDir
 
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	dataDir, err := paths.DataDir()
+	if err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
 	// Initialize storage
-	dbPath := filepath.Join(dataDir, "raycoon.db")
+	dbPath := dataDir + "/raycoon.db"
 	store, err := sqlite.New(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
