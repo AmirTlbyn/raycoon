@@ -1,7 +1,9 @@
 package tun
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"runtime"
@@ -11,6 +13,46 @@ import (
 	"github.com/xjasonlyu/tun2socks/v2/engine"
 	"raycoon/internal/paths"
 )
+
+// resolveToIPs converts a mixed list of hostnames/IPs to a flat deduplicated
+// list of IP addresses. Hostnames are resolved to ALL their IPs using
+// 8.8.8.8 directly (avoids ISP DNS interception). This ensures load-balanced
+// proxy servers with multiple A records all get bypass routes, preventing
+// xray's proxy connection from accidentally routing through the TUN.
+func resolveToIPs(addrs []string) []string {
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "udp", "8.8.8.8:53")
+		},
+	}
+	seen := make(map[string]bool)
+	var result []string
+	add := func(s string) {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	for _, addr := range addrs {
+		if net.ParseIP(addr) != nil {
+			add(addr)
+			continue
+		}
+		ips, err := resolver.LookupHost(context.Background(), addr)
+		if err != nil {
+			// Resolution failed — keep the original; route add will try.
+			add(addr)
+			continue
+		}
+		for _, ip := range ips {
+			if net.ParseIP(ip) != nil {
+				add(ip)
+			}
+		}
+	}
+	return result
+}
 
 // stopFilePath returns the path of the stop-signal file that Disable() creates
 // to tell the daemon to exit.
@@ -103,12 +145,18 @@ func RunDaemon(socksPort int, remoteAddrs []string) error {
 	}
 	logf("TUN address configured (%s)", tunGateway)
 
-	// Build full bypass list: proxy server addresses + DNS servers.
-	// DNS servers are bypassed (go direct) to avoid UDP-over-SOCKS5 issues.
-	// Xray TLS/HTTP sniffing overrides poisoned IPs to real domain names,
-	// so blocked domains still get proxied correctly despite direct DNS.
-	allBypasses := make([]string, 0, len(remoteAddrs)+2)
-	allBypasses = append(allBypasses, remoteAddrs...)
+	// Resolve proxy hostnames to ALL their IPs before the TUN routes are
+	// active (so DNS goes via the original gateway, not the TUN).
+	// A proxy behind round-robin / CDN DNS may return different IPs on
+	// different queries; if only ONE is bypassed, xray's connection to the
+	// proxy can loop through the TUN, hanging ALL traffic.
+	resolvedRemotes := resolveToIPs(remoteAddrs)
+	logf("bypass IPs resolved: %v → %v", remoteAddrs, resolvedRemotes)
+
+	// Build full bypass list: resolved proxy IPs + DNS servers.
+	// DNS servers are kept direct to avoid UDP-over-SOCKS5 reliability issues.
+	allBypasses := make([]string, 0, len(resolvedRemotes)+2)
+	allBypasses = append(allBypasses, resolvedRemotes...)
 	allBypasses = append(allBypasses, tunDNS, "1.1.1.1")
 
 	// Add bypass routes so bypassed traffic doesn't loop through TUN.
