@@ -61,6 +61,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -72,3 +74,44 @@ jobs:
         with:
           generate_release_notes: true
           files: raycoon-*
+
+      - name: Output tag
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+  update-formula:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Download release assets and compute SHA256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ needs.release.outputs.tag }}
+          VERSION=${TAG#v}
+          gh release download "$TAG" --dir /tmp/assets
+
+          SHA_DARWIN_AMD64=$(shasum -a 256 /tmp/assets/raycoon-darwin-amd64 | awk '{print $1}')
+          SHA_DARWIN_ARM64=$(shasum -a 256 /tmp/assets/raycoon-darwin-arm64 | awk '{print $1}')
+          SHA_LINUX_AMD64=$(shasum -a 256  /tmp/assets/raycoon-linux-amd64  | awk '{print $1}')
+          SHA_LINUX_ARM64=$(shasum -a 256  /tmp/assets/raycoon-linux-arm64  | awk '{print $1}')
+
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/raycoon.rb
+
+          # Replace sha256 by finding the url line for each arch, then updating the next sha256 line
+          sed -i "/raycoon-darwin-amd64/{n;s/sha256 \"[^\"]*\"/sha256 \"${SHA_DARWIN_AMD64}\"/}" Formula/raycoon.rb
+          sed -i "/raycoon-darwin-arm64/{n;s/sha256 \"[^\"]*\"/sha256 \"${SHA_DARWIN_ARM64}\"/}" Formula/raycoon.rb
+          sed -i "/raycoon-linux-amd64/{n;s/sha256 \"[^\"]*\"/sha256 \"${SHA_LINUX_AMD64}\"/}"   Formula/raycoon.rb
+          sed -i "/raycoon-linux-arm64/{n;s/sha256 \"[^\"]*\"/sha256 \"${SHA_LINUX_ARM64}\"/}"   Formula/raycoon.rb
+
+      - name: Commit updated formula
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/raycoon.rb
+          git commit -m "chore: update formula to ${{ needs.release.outputs.tag }}"
+          git push origin master

@@ -1,7 +1,7 @@
 class Raycoon < Formula
   desc "Modern V2Ray/proxy CLI client with xray-core support"
   homepage "https://github.com/AmirTlbyn/raycoon"
-  version "1.0.0"
+  version "1.1.0"
   license "MIT"
 
   on_macos do
