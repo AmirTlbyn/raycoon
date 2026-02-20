@@ -109,11 +109,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		ch := m.contentHeight()
-		m.groupsTab.setSize(msg.Width, ch)
-		m.configsTab.setSize(msg.Width, ch)
-		m.statusTab.setSize(msg.Width, ch)
-		m.settingsTab.setSize(msg.Width, ch)
+		m.resizeTabs()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -186,6 +182,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.configsTab.updateProgress(msg)
 	case latencyTestDoneMsg:
 		m.configsTab.testingBatch = false
+		m.configsTab.adjustTableHeight() // testing row gone; reclaim the space
 		if msg.err != nil {
 			m.setNotification(fmt.Sprintf("Batch test failed: %v", msg.err), true)
 		} else {
@@ -196,6 +193,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, loadConfigs(m.store, m.configsTab.filterGroupID))
 	case singleLatencyDoneMsg:
 		m.configsTab.testingSingle = false
+		m.configsTab.adjustTableHeight() // testing row gone; reclaim the space
 		if msg.result.Latency.Success {
 			m.setNotification(
 				fmt.Sprintf("%s: %dms", msg.result.Config.Name, *msg.result.Latency.LatencyMS), false)
@@ -227,8 +225,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Notification.
 	case clearNotificationMsg:
 		if msg.version == m.notifVersion {
+			hadNotif := m.notification != ""
 			m.notification = ""
 			m.notificationErr = false
+			if hadNotif {
+				m.resizeTabs()
+			}
 		}
 	}
 
@@ -322,15 +324,35 @@ func forceHeight(s string, width, height int) string {
 }
 
 func (m *Model) contentHeight() int {
+	// header = 3 lines (logo+pill row, tab bar, separator)
+	// footer short = 2 lines (separator + help bar)
+	// footer full  = 5 lines (separator + 4 help groups)
 	overhead := 5
 	if m.showHelp {
-		overhead += 3
+		overhead += 3 // full help adds 3 extra lines (4 groups - 1)
+	}
+	if m.notification != "" {
+		overhead++ // notification bar takes 1 line
 	}
 	h := m.height - overhead
 	if h < 1 {
 		h = 1
 	}
 	return h
+}
+
+// resizeTabs propagates the current content height to every tab model.
+// Must be called whenever anything that affects contentHeight changes:
+// window size, notification, or help toggle.
+func (m *Model) resizeTabs() {
+	if m.width == 0 {
+		return
+	}
+	ch := m.contentHeight()
+	m.groupsTab.setSize(m.width, ch)
+	m.configsTab.setSize(m.width, ch)
+	m.statusTab.setSize(m.width, ch)
+	m.settingsTab.setSize(m.width, ch)
 }
 
 func (m *Model) handleGlobalKey(msg tea.KeyMsg) tea.Cmd {
@@ -345,21 +367,22 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, keys.Help):
 		m.showHelp = !m.showHelp
+		m.resizeTabs() // content height changes when help expands/collapses
 		return nil
 
 	case key.Matches(msg, keys.TabNext):
 		m.activeTab = (m.activeTab + 1) % tabCount
 		if m.activeTab == tabStatus && m.connected {
-			return pollStatus(m.coreMgr)
+			return tea.Batch(pollStatus(m.coreMgr), func() tea.Msg { return tea.ClearScreen() })
 		}
-		return nil
+		return func() tea.Msg { return tea.ClearScreen() }
 
 	case key.Matches(msg, keys.TabPrev):
 		m.activeTab = (m.activeTab - 1 + tabCount) % tabCount
 		if m.activeTab == tabStatus && m.connected {
-			return pollStatus(m.coreMgr)
+			return tea.Batch(pollStatus(m.coreMgr), func() tea.Msg { return tea.ClearScreen() })
 		}
-		return nil
+		return func() tea.Msg { return tea.ClearScreen() }
 
 	case key.Matches(msg, keys.Disconnect):
 		if m.connected && !m.connecting {
@@ -381,9 +404,14 @@ func (m *Model) handleGlobalKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (m *Model) setNotification(text string, isErr bool) {
+	wasEmpty := m.notification == ""
 	m.notification = text
 	m.notificationErr = isErr
 	m.notifVersion++
+	// Notification appearing/disappearing changes content height by 1 line.
+	if wasEmpty != (text == "") {
+		m.resizeTabs()
+	}
 }
 
 func (m *Model) getLatencySettings() (string, int64, int64) {

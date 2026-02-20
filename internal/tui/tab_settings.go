@@ -223,7 +223,7 @@ func (sm *settingsModel) View() string {
 		}
 	}
 
-	return b.String()
+	return forceHeight(b.String(), sm.width, sm.height)
 }
 
 // renderChoices renders the choice selector with the active choice highlighted.

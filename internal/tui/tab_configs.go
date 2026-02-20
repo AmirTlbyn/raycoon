@@ -77,7 +77,7 @@ func newConfigsModel() configsModel {
 func (cm *configsModel) setSize(w, h int) {
 	cm.width = w
 	cm.height = h
-	cm.table.SetHeight(h - 2) // Room for filter line + progress bar.
+	cm.adjustTableHeight()
 
 	// Adjust column widths proportionally.
 	if w > 100 {
@@ -91,6 +91,25 @@ func (cm *configsModel) setSize(w, h int) {
 		})
 	}
 	cm.batchProgress.Width = w - 4
+}
+
+// adjustTableHeight sets the table height based on how many overhead lines are
+// actually rendered (filter info line and/or testing indicator line).
+// table.SetHeight(h) already accounts for the header rows internally, so we
+// only need to subtract the lines we render above the table.
+func (cm *configsModel) adjustTableHeight() {
+	overhead := 0
+	if cm.filterGroupName != "" {
+		overhead++
+	}
+	if cm.testingSingle || cm.testingBatch {
+		overhead++
+	}
+	th := cm.height - overhead
+	if th < 1 {
+		th = 1
+	}
+	cm.table.SetHeight(th)
 }
 
 func (cm *configsModel) setConfigs(configs []*models.Config, store storage.Storage) {
@@ -125,6 +144,7 @@ func (cm *configsModel) setConfigs(configs []*models.Config, store storage.Stora
 		}
 	}
 	cm.table.SetRows(rows)
+	cm.table.GotoTop() // always start at row 0 when new data arrives
 }
 
 func (cm *configsModel) selectedConfig() *models.Config {
@@ -163,6 +183,7 @@ func (cm *configsModel) Update(msg tea.Msg, root *Model) tea.Cmd {
 			cfg := cm.selectedConfig()
 			if cfg != nil && !cm.testingSingle && !cm.testingBatch {
 				cm.testingSingle = true
+				cm.adjustTableHeight()
 				strategy, _, timeoutMS := root.getLatencySettings()
 				return testSingleLatency(root.store, cfg, strategy, timeoutMS)
 			}
@@ -172,6 +193,7 @@ func (cm *configsModel) Update(msg tea.Msg, root *Model) tea.Cmd {
 				cm.testingBatch = true
 				cm.batchCurrent = 0
 				cm.batchTotal = len(cm.configs)
+				cm.adjustTableHeight()
 				strategy, workers, timeoutMS := root.getLatencySettings()
 				return testBatchLatency(root.store, cm.configs, root.program, strategy, workers, timeoutMS)
 			}
@@ -180,6 +202,7 @@ func (cm *configsModel) Update(msg tea.Msg, root *Model) tea.Cmd {
 			if cm.filterGroupID != nil {
 				cm.filterGroupID = nil
 				cm.filterGroupName = ""
+				cm.adjustTableHeight()
 				return loadConfigs(root.store, nil)
 			}
 		}
@@ -215,7 +238,7 @@ func (cm *configsModel) View(s spinner.Model) string {
 	// Table.
 	b.WriteString(cm.table.View())
 
-	return b.String()
+	return forceHeight(b.String(), cm.width, cm.height)
 }
 
 // Color the latency cell in the rendered view.

@@ -41,10 +41,13 @@ func (sm *statusModel) Update(msg tea.Msg, root *Model) tea.Cmd {
 }
 
 func (sm *statusModel) View(connected bool, config *models.Config, conn *models.ActiveConnection) string {
+	var content string
 	if !connected || config == nil || conn == nil {
-		return sm.viewDisconnected()
+		content = sm.viewDisconnected()
+	} else {
+		content = sm.viewConnected(config, conn)
 	}
-	return sm.viewConnected(config, conn)
+	return forceHeight(content, sm.width, sm.height)
 }
 
 func (sm *statusModel) viewDisconnected() string {

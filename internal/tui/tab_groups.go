@@ -143,7 +143,12 @@ func (gm *groupsModel) Update(msg tea.Msg, root *Model) tea.Cmd {
 				root.activeTab = tabConfigs
 				root.configsTab.filterGroupID = &g.ID
 				root.configsTab.filterGroupName = g.Name
-				return loadConfigs(root.store, &g.ID)
+				root.configsTab.adjustTableHeight() // filter row now visible
+				root.configsTab.table.GotoTop()     // reset cursor so no row appears "out of range"
+				return tea.Batch(
+					loadConfigs(root.store, &g.ID),
+					func() tea.Msg { return tea.ClearScreen() },
+				)
 			}
 
 		case key.Matches(msg, keys.Update):
@@ -169,7 +174,8 @@ func (gm *groupsModel) Update(msg tea.Msg, root *Model) tea.Cmd {
 
 func (gm *groupsModel) View(s spinner.Model) string {
 	if gm.updating {
-		return s.View() + " Updating subscription..."
+		// Pad to full height so the footer stays pinned at the bottom.
+		return forceHeight(s.View()+" Updating subscription...", gm.width, gm.height)
 	}
-	return gm.list.View()
+	return forceHeight(gm.list.View(), gm.width, gm.height)
 }
